@@ -1,15 +1,53 @@
-FROM arm32v7/ubuntu:18.04
+ARG CRYSTAL_VERSION=0.35.1
+FROM arm32v7/ubuntu:18.04 AS builder
 
-RUN apt-get update && apt-get install -y wget git make llvm-8 llvm-8-dev g++ libsqlite3-dev libyaml-dev libgc-dev libssl-dev libcrypto++-dev libevent-dev libgmp-dev zlib1g-dev libpcre++-dev pkg-config libarchive-dev libxml2-dev libacl1-dev nettle-dev liblzo2-dev liblzma-dev libbz2-dev libjpeg-turbo8-dev libpng-dev libtiff-dev
+WORKDIR /Mango
 
-RUN git clone https://github.com/crystal-lang/crystal && cd crystal && git checkout 0.35.1 && make deps && cd ..
-RUN git clone https://github.com/kostya/myhtml && cd myhtml/src/ext && git checkout v1.5.0 && make && cd ..
-RUN git clone https://github.com/jessedoyle/duktape.cr && cd duktape.cr/ext && git checkout v0.20.0 && make && cd ..
-RUN git clone https://github.com/hkalexling/image_size.cr && cd image_size.cr && git checkout v0.2.0 && make && cd ..
+RUN apt-get update && apt-get install --no-install-recommends -y \
+  wget git make llvm-8 llvm-8-dev g++ \
+  libsqlite3-dev libyaml-dev libgc-dev \
+  libssl-dev libcrypto++-dev libevent-dev \
+  libgmp-dev zlib1g-dev libpcre++-dev pkg-config \
+  libarchive-dev libxml2-dev libacl1-dev nettle-dev \
+  liblzo2-dev liblzma-dev libbz2-dev libjpeg-turbo8-dev \
+  libpng-dev libtiff-dev ca-certificates
 
-COPY mango-arm32v7.o .
+RUN git clone https://github.com/crystal-lang/crystal \
+  && cd crystal \
+  && git checkout $CRYSTAL_VERSION \
+  && make deps \
+  && cd ..
+
+RUN git clone https://github.com/kostya/myhtml \
+  && cd myhtml/src/ext \
+  && git checkout v1.5.0 \
+  && make \
+  && cd ..
+
+RUN git clone https://github.com/jessedoyle/duktape.cr \
+  && cd duktape.cr/ext \
+  && git checkout v0.20.0 \
+  && make \
+  && cd ..
+
+RUN git clone https://github.com/hkalexling/image_size.cr \
+  && cd image_size.cr \
+  && git checkout v0.2.0 \
+  && make \
+  && cd ..
 
 RUN cc 'mango-arm32v7.o' -o '/usr/local/bin/mango' -rdynamic -lxml2 -L/image_size.cr/ext/libwebp -lwebp -L/image_size.cr/ext/stbi -lstbi /myhtml/src/ext/modest-c/lib/libmodest_static.a -L/duktape.cr/src/.build/lib -L/duktape.cr/src/.build/include -lduktape -lm `pkg-config libarchive --libs` -lz `command -v pkg-config > /dev/null && pkg-config --libs --silence-errors libssl || printf %s '-lssl -lcrypto'` `command -v pkg-config > /dev/null && pkg-config --libs --silence-errors libcrypto || printf %s '-lcrypto'` -lgmp -lsqlite3 -lyaml -lpcre -lm /usr/lib/arm-linux-gnueabihf/libgc.so -lpthread /crystal/src/ext/libcrystal.a -levent -lrt -ldl -L/usr/bin/../lib/crystal/lib -L/usr/bin/../lib/crystal/lib
 
-CMD ["/usr/local/bin/mango"]
+FROM arm64v8/alpine:latest
 
+# Create a group and user
+RUN addgroup -g 1000 mango \
+  && adduser -u 1000 -G mango -h /home/mango -D mango
+
+# Set the default user to run commands, everything ran after this line will be run as normal user
+USER mango:mango
+
+# Copy compiled binary from build step
+COPY --from=builder /Mango/mango /usr/local/bin/mango
+
+CMD ["/usr/local/bin/mango"]

@@ -1,2 +1,9 @@
+.github
+.all-contributorsrc
+.gitignore
+docker-compose.yml
+env.example
+README.md
 node_modules
 lib
+test

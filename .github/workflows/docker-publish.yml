@@ -1,0 +1,126 @@
+name: Build Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  release:
+      types: [released]
+
+env:
+  CRYSTAL_VERSION: 0.35.1-alpine
+  IMAGE_NAME: hkalexling/mango
+
+jobs:
+  build-binary-upload:
+    name: Compile binaries and upload to release
+    runs-on: ubuntu-latest
+    container:
+      image: crystallang/crystal:${{ env.CRYSTAL_VERSION }}
+
+    steps:
+      - name: Checkout
+      - uses: actions/checkout@v2
+
+      - name: Install dependencies
+        run: |
+          apk add --no-cache \
+            yarn yaml sqlite-static libarchive-dev \
+            libarchive-static acl-static expat-static \
+            zstd-static lz4-static bzip2-static \
+            libjpeg-turbo-dev libpng-dev tiff-dev
+
+      - name: Build
+        run: make static || make static
+
+      - name: Lint
+        run: make check
+
+      - name: Tests
+        run: make test
+
+      - name: Upload x86_64 binary to release
+        uses: JasonEtco/upload-to-release@f6be50515ab654bbbe5265afcf9acd97385b694c
+        with:
+          args: mango application/octet-stream
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build arm32v7 object file
+        run: make arm32v7 || make arm32v7
+
+      - name: Upload arm32v7 to release
+        uses: JasonEtco/upload-to-release@f6be50515ab654bbbe5265afcf9acd97385b694c
+        with:
+          args: arm32v7.o application/octet-stream
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build arm64v8 object file
+        run: make arm64v8 || make arm64v8
+
+      - name: Upload arm64v8 to release
+        uses: JasonEtco/upload-to-release@f6be50515ab654bbbe5265afcf9acd97385b694c
+        with:
+          args: arm64v8.o application/octet-stream
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-docker-publish:
+    name: Build docker images and push to registry
+    needs: build-binary-upload
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@master
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@master
+        with:
+          platforms: all
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@master
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v1
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and push amd64
+        uses: docker/build-push-action@v2
+        with:
+          build-args: CRYSTAL_VERSION=${{ env.CRYSTAL_VERSION }}
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:latest
+            ${{ env.IMAGE_NAME }}:${GITHUB_REF#refs/*/}
+
+      - name: Build and push linux/arm32v7
+        uses: docker/build-push-action@v2
+        with:
+          build-args: CRYSTAL_VERSION=${{ env.CRYSTAL_VERSION }}
+          context: .
+          file: ./Dockerfile.arm32v7
+          platforms: linux/arm32v7
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:latest
+            ${{ env.IMAGE_NAME }}:${GITHUB_REF#refs/*/}
+
+      - name: Build and push linux/arm64v8
+        uses: docker/build-push-action@v2
+        with:
+          build-args: CRYSTAL_VERSION=${{ env.CRYSTAL_VERSION }}
+          context: .
+          file: ./Dockerfile.arm64v8
+          platforms: linux/arm64v8
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:latest
+            ${{ env.IMAGE_NAME }}:${GITHUB_REF#refs/*/}

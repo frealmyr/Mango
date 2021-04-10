@@ -1,15 +1,16 @@
-version: '3'
+version: "3.5"
 
 services:
   mango:
     container_name: mango
+    user: ${UID:-1000}:${GID:-1000}
     build:
       context: .
       dockerfile: ./Dockerfile
     expose:
       - ${PORT}
     ports:
-      - "${PORT}:9000"
+      - ${PORT}:9000
     volumes:
-      - ${MAIN_DIRECTORY_PATH}:/root/mango
-      - ${CONFIG_DIRECTORY_PATH}:/root/.config/mango
+      - ${MAIN_DIRECTORY_PATH}:/home/mango/mango
+      - ${CONFIG_DIRECTORY_PATH}:/home/mango/.config
